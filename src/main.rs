@@ -1,11 +1,11 @@
-use std::path::{Path, PathBuf};
-use std::process::{exit, Command, Stdio};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::process::{exit, Command, Stdio};
 use structopt::StructOpt;
 use toml::Value;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 
 const PROGRESS_FLAG: &str = "--info=progress2";
 
@@ -85,11 +85,19 @@ enum Opts {
 fn config_from_file(config_path: &Path) -> Option<Value> {
     let config_file = std::fs::read_to_string(config_path)
         .map_err(|e| {
-            warn!(
-                "Can't parse config file '{}' (error: {})",
-                config_path.to_string_lossy(),
-                e
-            );
+            if let std::io::ErrorKind::NotFound = e.kind() {
+                debug!(
+                    "Can't parse config file '{}' (error: {})",
+                    config_path.to_string_lossy(),
+                    e
+                );
+            } else {
+                warn!(
+                    "Can't parse config file '{}' (error: {})",
+                    config_path.to_string_lossy(),
+                    e
+                );
+            }
         })
         .ok()?;
 
@@ -219,8 +227,15 @@ fn main() {
             .arg("--delete")
             .arg("--compress")
             .arg("--info=progress2")
-            .arg(format!("{}:{}/target/{}", build_server, build_path, file_name))
-            .arg(format!("{}/target/{}", project_dir.to_string_lossy(), file_name))
+            .arg(format!(
+                "{}:{}/target/{}",
+                build_server, build_path, file_name
+            ))
+            .arg(format!(
+                "{}/target/{}",
+                project_dir.to_string_lossy(),
+                file_name
+            ))
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .stdin(Stdio::inherit())
