@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -6,8 +7,6 @@ use structopt::StructOpt;
 use toml::Value;
 
 use log::{debug, error, info, warn};
-
-const PROGRESS_FLAG: &str = "--info=progress2";
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "cargo-remote", bin_name = "cargo")]
@@ -23,7 +22,7 @@ enum Opts {
             help = "Set remote environment variables. RUST_BACKTRACE, CC, LIB, etc. ",
             default_value = "RUST_BACKTRACE=1"
         )]
-        build_env: String,
+        build_env: Vec<String>,
 
         #[structopt(
             short = "d",
@@ -116,7 +115,8 @@ fn config_from_file(config_path: &Path) -> Option<Value> {
 }
 
 fn main() {
-    simple_logger::init_with_level(log::Level::Info).unwrap();
+    let mut log_builder = env_logger::Builder::from_default_env();
+    log_builder.filter(None, log::LevelFilter::Info).init();
 
     let Opts::Remote {
         remote,
@@ -200,7 +200,7 @@ fn main() {
         env,
         rustup_default,
         build_path,
-        build_env,
+        build_env.into_iter().join(" "),
         command,
         options.join(" ")
     );
@@ -221,7 +221,7 @@ fn main() {
 
     if let Some(file_name) = copy_back {
         info!("Transferring artifacts back to client.");
-        let file_name = file_name.unwrap_or_else(String::new);
+        let file_name = file_name.unwrap_or_default();
         Command::new("rsync")
             .arg("-a")
             .arg("--delete")
@@ -234,7 +234,7 @@ fn main() {
             .arg(format!(
                 "{}/target/{}",
                 project_dir.to_string_lossy(),
-                file_name
+                file_name,
             ))
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
