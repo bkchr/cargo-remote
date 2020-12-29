@@ -8,74 +8,72 @@ use toml::Value;
 
 use log::{debug, error, info, warn};
 
+/// An enum that represents the commands that will be passed to the remote cargo
+/// instance.
+///
+/// It uses `external_subcommand` to capture any given subcommand plus arguments.
+/// This means that everything that is passed as subcommand it "blindly" passed
+/// to the remote cargo instance and is required to be a valid cargo subcommand.
+///
+/// # Example
+///
+/// `cargo remote -r 100.100.100.100 build --release --all`
+///
+/// In this example `build --release --all` are passed to the remote cargo instance.
+#[derive(StructOpt, Debug)]
+enum RemoteCommands {
+    #[structopt(external_subcommand)]
+    Commands(Vec<String>),
+}
+
+impl RemoteCommands {
+    /// Convert into the raw commands.
+    fn into_commands(self) -> Vec<String> {
+        let Self::Commands(cmds) = self;
+        cmds
+    }
+}
+
 #[derive(StructOpt, Debug)]
 #[structopt(name = "cargo-remote", bin_name = "cargo")]
 enum Opts {
     #[structopt(name = "remote")]
     Remote {
-        #[structopt(short = "r", long = "remote", help = "Remote ssh build server")]
+        /// Remote ssh build server.
+        #[structopt(short = "r", long)]
         remote: Option<String>,
 
-        #[structopt(
-            short = "b",
-            long = "build-env",
-            help = "Set remote environment variables. RUST_BACKTRACE, CC, LIB, etc. ",
-            default_value = "RUST_BACKTRACE=1"
-        )]
+        /// Set remote environment variables. RUST_BACKTRACE, CC, LIB, etc.
+        #[structopt(short = "b", long, default_value = "RUST_BACKTRACE=1")]
         build_env: Vec<String>,
 
-        #[structopt(
-            short = "d",
-            long = "rustup-default",
-            help = "Rustup default (stable|beta|nightly)",
-            default_value = "stable"
-        )]
+        /// Rustup default (stable|beta|nightly)
+        #[structopt(short = "d", long, default_value = "stable")]
         rustup_default: String,
 
-        #[structopt(
-            short = "e",
-            long = "env",
-            help = "Environment profile. default_value = /etc/profile",
-            default_value = "/etc/profile"
-        )]
+        /// Environment profile.
+        #[structopt(short = "e", long, default_value = "/etc/profile")]
         env: String,
 
-        #[structopt(
-            short = "c",
-            long = "copy-back",
-            help = "Transfer the target folder or specific file from that folder back to the local machine"
-        )]
+        /// Transfer the target folder or specific file from that folder back
+        /// to the local machine.
+        #[structopt(short = "c", long)]
         copy_back: Option<Option<String>>,
 
-        #[structopt(
-            long = "no-copy-lock",
-            help = "don't transfer the Cargo.lock file back to the local machine"
-        )]
+        /// Don't transfer the Cargo.lock file back to the local machine
+        #[structopt(long)]
         no_copy_lock: bool,
 
-        #[structopt(
-            long = "manifest-path",
-            help = "Path to the manifest to execute",
-            default_value = "Cargo.toml",
-            parse(from_os_str)
-        )]
+        /// Path to the manifest to execute
+        #[structopt(long, default_value = "Cargo.toml", parse(from_os_str))]
         manifest_path: PathBuf,
 
-        #[structopt(
-            short = "h",
-            long = "transfer-hidden",
-            help = "Transfer hidden files and directories to the build server"
-        )]
+        /// Transfer hidden files and directories to the build server
+        #[structopt(short = "h", long = "transfer-hidden")]
         hidden: bool,
 
-        #[structopt(help = "cargo command that will be executed remotely")]
-        command: String,
-
-        #[structopt(
-            help = "cargo options and flags that will be applied remotely",
-            name = "remote options"
-        )]
-        options: Vec<String>,
+        #[structopt(flatten)]
+        remote_commands: RemoteCommands,
     },
 }
 
@@ -127,8 +125,7 @@ fn main() {
         no_copy_lock,
         manifest_path,
         hidden,
-        command,
-        options,
+        remote_commands,
     } = Opts::from_args();
 
     let mut metadata_cmd = cargo_metadata::MetadataCommand::new();
@@ -196,13 +193,12 @@ fn main() {
     info!("Environment profile: {:?}", env);
     info!("Build path: {:?}", build_path);
     let build_command = format!(
-        "source {}; rustup default {}; cd {}; {} cargo {} {}",
+        "source {}; rustup default {}; cd {}; {} cargo {}",
         env,
         rustup_default,
         build_path,
         build_env.into_iter().join(" "),
-        command,
-        options.join(" ")
+        remote_commands.into_commands().join(" "),
     );
 
     info!("Starting build process.");
