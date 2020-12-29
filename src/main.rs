@@ -1,12 +1,19 @@
 use itertools::Itertools;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::process::{exit, Command, Stdio};
+use std::{
+    collections::hash_map::DefaultHasher,
+    env,
+    hash::{Hash, Hasher},
+    path::{Path, PathBuf},
+    process::{exit, Command, Stdio},
+};
 use structopt::StructOpt;
 use toml::Value;
 
 use log::{debug, error, info, warn};
+
+/// Environment variables that are whitelisted to be forwarded from the process
+/// env to the remote cargo instance.
+const WHITELISTED_ENV_VARS: &[&str] = &["RUST_BACKTRACE", "RUST_LOG", "CARGO_INCREMENTAL"];
 
 /// An enum that represents the commands that will be passed to the remote cargo
 /// instance.
@@ -44,7 +51,7 @@ enum Opts {
         remote: Option<String>,
 
         /// Set remote environment variables. RUST_BACKTRACE, CC, LIB, etc.
-        #[structopt(short = "b", long, default_value = "RUST_BACKTRACE=1")]
+        #[structopt(short = "b", long)]
         build_env: Vec<String>,
 
         /// Rustup default (stable|beta|nightly)
@@ -118,7 +125,7 @@ fn main() {
 
     let Opts::Remote {
         remote,
-        build_env,
+        mut build_env,
         rustup_default,
         env,
         copy_back,
@@ -189,9 +196,15 @@ fn main() {
             error!("Failed to transfer project to build server (error: {})", e);
             exit(-4);
         });
-    info!("Build ENV: {:?}", build_env);
     info!("Environment profile: {:?}", env);
     info!("Build path: {:?}", build_path);
+
+    build_env.extend(
+        env::vars()
+            .filter(|(k, _v)| WHITELISTED_ENV_VARS.iter().any(|w| w == k))
+            .map(|(k, v)| format!(r#"{}="{}""#, k, v)),
+    );
+
     let build_command = format!(
         "source {}; rustup default {}; cd {}; {} cargo {}",
         env,
